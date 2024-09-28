@@ -223,17 +223,16 @@ export function canonical_url_of_media(media: HTMLMediaElement | HTMLImageElemen
     return media_string;
 }
 
-export function render_lightbox_media_list(displayed_source: string): void {
+export function render_lightbox_media_list(): void {
     if (!is_open) {
         const message_media_list = $<HTMLMediaElement | HTMLImageElement>(
             ".focused-message-list .message_inline_image img, .focused-message-list .message_inline_video video",
         ).toArray();
         const $lightbox_media_list = $("#lightbox_overlay .image-list").empty();
-        const canonical_displayed_source = new URL(displayed_source, window.location.origin).href;
         for (const media of message_media_list) {
-            const message_media_list_src = canonical_url_of_media(media);
-            const className =
-                message_media_list_src === canonical_displayed_source ? "image selected" : "image";
+            const className = media.classList.contains("media-to-select-in-lightbox-list")
+                ? "image selected"
+                : "image";
             const is_video = media.tagName === "VIDEO";
 
             // We parse the data for each image to show in the list,
@@ -268,7 +267,7 @@ export function render_lightbox_media_list(displayed_source: string): void {
 }
 
 function display_image(payload: Payload): void {
-    render_lightbox_media_list(payload.source);
+    render_lightbox_media_list();
 
     $(".player-container, .video-player").hide();
     $(".image-preview, .media-actions, .media-description, .download, .lightbox-zoom-reset").show();
@@ -317,7 +316,7 @@ function display_image(payload: Payload): void {
 }
 
 function display_video(payload: Payload): void {
-    render_lightbox_media_list(payload.source);
+    render_lightbox_media_list();
 
     $(
         "#lightbox_overlay .image-preview, .media-description, .download, .lightbox-zoom-reset, .video-player",
@@ -469,7 +468,12 @@ export function show_from_selected_message(): void {
 
     if ($media.length !== 0) {
         const open_media = build_open_media_function(undefined);
-        open_media($media);
+        // Since this function is only called from the "show_lightbox"
+        // hotkey, we don't have a selected image to load. Therefore,
+        // we show the first one returned from the traversal above.
+        $media.first().addClass("media-to-select-in-lightbox-list");
+        open_media($media.first());
+        $media.first().removeClass("media-to-select-in-lightbox-list");
     }
 }
 
@@ -622,7 +626,9 @@ export function initialize(): void {
             // prevent the message compose dialog from happening.
             e.stopPropagation();
             const $img = $(this).find<HTMLImageElement>("img");
+            $img.addClass("media-to-select-in-lightbox-list");
             open_image($img);
+            $img.removeClass("media-to-select-in-lightbox-list");
         },
     );
 
@@ -631,7 +637,9 @@ export function initialize(): void {
         e.stopPropagation();
 
         const $video = $(e.currentTarget).find<HTMLMediaElement>("video");
+        $video.addClass("media-to-select-in-lightbox-list");
         open_video($video);
+        $video.removeClass("media-to-select-in-lightbox-list");
     });
 
     $("#lightbox_overlay .download").on("click", function () {
@@ -639,6 +647,9 @@ export function initialize(): void {
     });
 
     $("#lightbox_overlay").on("click", ".image-list .image", function (this: HTMLElement) {
+        // Remove any video players so sound does not continue when
+        // navigating away from a video that might be playing
+        remove_video_players();
         const $media_list = $(this).parent();
         let $original_media_element;
         const is_video = $(this).hasClass("lightbox_video");
@@ -663,7 +674,14 @@ export function initialize(): void {
             return;
         }
 
-        open_image($original_media_element);
+        // Because a user could conceivably copy and paste a media reference
+        // from another message, and because we are selecting the original
+        // element above based on a data-url value that is therefore not
+        // guaranteed to be unique, we pass the first (possibly only) media
+        // element returned. The logic below for removing and adding the
+        // "selected" class ensures that the correct thumbnail will
+        // still be highlighted.
+        open_image($original_media_element.first());
 
         if (!$(".image-list .image.selected").hasClass("lightbox_video") || !is_video) {
             pan_zoom_control.reset();
